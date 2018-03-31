@@ -29,7 +29,7 @@ func UpdateRecord(r53 route53iface.Route53API, zoneID *string, record, value str
 			},
 			Comment: aws.String("DDNS update."),
 		},
-		HostedZoneId: zoneID, // Required
+		HostedZoneId: zoneID,
 	}
 	req := r53.ChangeResourceRecordSetsRequest(in)
 	_, err := req.Send()
