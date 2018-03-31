@@ -2,6 +2,7 @@ package r53
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
@@ -9,14 +10,14 @@ import (
 )
 
 // UpdateRecord upserts a route53 record
-func UpdateRecord(r53 route53iface.Route53API, zoneID *string, record, value string, rectype route53.RRType) error {
+func UpdateRecord(r53 route53iface.Route53API, zoneID *string, fqdn, value string, rectype route53.RRType) error {
 	in := &route53.ChangeResourceRecordSetsInput{
 		ChangeBatch: &route53.ChangeBatch{
 			Changes: []route53.Change{
 				{
 					Action: route53.ChangeActionUpsert,
 					ResourceRecordSet: &route53.ResourceRecordSet{
-						Name: aws.String(record),
+						Name: aws.String(fqdn),
 						Type: rectype,
 						ResourceRecords: []route53.ResourceRecord{
 							{
@@ -47,7 +48,7 @@ func ZoneID(r53 route53iface.Route53API, zone string) (*string, error) {
 			return nil, err
 		}
 		for _, z := range out.HostedZones {
-			if aws.StringValue(z.Name) == zone {
+			if strings.TrimRight(aws.StringValue(z.Name), ".") == zone {
 				return z.Id, nil
 			}
 		}
