@@ -1,0 +1,38 @@
+# Define User Variables
+:global ddnskey "APIKEY"
+:global ddnsrecord "www"
+:global ddnsdomain "jtnet.co.uk."
+
+# Define Global Variables
+:global ddnsip
+:global ddnslastip
+:if ([ :typeof $ddnslastip ] = nil ) do={ :global ddnslastip "0" }
+
+# Define Local Variables
+:local int
+
+:log debug ("DDNS: Running script")
+:log debug ("DDNS: External IP last time " . $ddnslastip )
+
+# Grab the current IP address on that interface.
+:global ddnsip [ /ip address get [/ip address find interface=pppoe-out1 ] address ]
+:log debug ("DDNS: External IP is currently " . $ddnsip)
+
+# Did we get an IP address to compare?
+:if ([ :typeof $ddnsip ] = nil ) do={
+   :log error ("DDNS: No ip address present on pppoe-out1, please check.")
+} else={
+  :if ($ddnsip != $ddnslastip) do={
+    :log info ("DDNS: Sending update for " . $ddnsrecord . "." . $ddnsdomain . "" to " . $ddnsip)
+    :local url "https://1v9rrx0784.execute-api.eu-west-2.amazonaws.com/v1/ddns/" . $ddnsdomain . "/" . $ddnsrecord . "\?type=A&value=" .  $ddnsip
+    :log debug ("DDNS URL: " $url)
+    /tool fetch url="$url" mode=http user=$ddnsuser password=$ddnspass dst-path=("/DynDNS.".$ddnshost . ".txt")
+    #:delay 1
+    #:local str [/file find name="DynDNS.$ddnshost"];
+    #/file remove $str
+    :global ddnslastip $ddnsip
+    :log debug ("DynDNS: Last IP now: ". $ddnslastip)
+  } else={
+    :log debug ("DynDNS: No change in IP since last time. Doing nothing.")
+  }
+}

@@ -3,6 +3,9 @@ variable "aws_secret_key" {}
 variable "aws_region" {
   default = "eu-west-2"
 }
+variable "basic_auth_user" {}
+variable "basic_auth_password" {}
+
 
 provider "aws" {
   access_key = "${var.aws_access_key}"
@@ -93,6 +96,77 @@ resource "aws_lambda_function" "ddns_lambda" {
   }
 }
 
+resource "aws_iam_role" "api_basic_auth_lambda" {
+  name = "api_basic_auth_lambda"
+
+  assume_role_policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": "sts:AssumeRole",
+      "Principal": {
+        "Service": "lambda.amazonaws.com"
+      },
+      "Effect": "Allow",
+      "Sid": ""
+    }
+  ]
+}
+EOF
+}
+
+data "aws_iam_policy_document" "api_basic_auth_lambda_policy" {
+  statement {
+    sid = "CreateLambdaLogGroup"
+    actions = [
+      "logs:CreateLogGroup",
+    ]
+    resources = [
+      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*",
+    ]
+  }
+
+  statement {
+    sid = "LambdaLogging"
+    actions = [
+      "logs:CreateLogStream",
+      "logs:PutLogEvents"
+    ]
+    resources = [
+      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${aws_lambda_function.api_basic_auth_lambda.function_name}:*",
+    ]
+  }
+}
+
+resource "aws_iam_policy" "api_basic_auth_lambda_policy" {
+  name   = "api_basic_auth_lambda_policy"
+  path   = "/"
+  policy = "${data.aws_iam_policy_document.api_basic_auth_lambda_policy.json}"
+}
+
+resource "aws_iam_role_policy_attachment" "api_basic_auth_attach" {
+  role       = "${aws_iam_role.api_basic_auth_lambda.name}"
+  policy_arn = "${aws_iam_policy.api_basic_auth_lambda_policy.arn}"
+}
+
+resource "aws_lambda_function" "api_basic_auth_lambda" {
+  filename         = "auth.zip"
+  function_name    = "api_basic_auth"
+  role             = "${aws_iam_role.api_basic_auth_lambda.arn}"
+  handler          = "main"
+  source_code_hash = "${base64sha256(file("auth.zip"))}"
+  runtime          = "go1.x"
+  timeout = 30
+
+  environment {
+    variables = {
+      USER = "${var.basic_auth_user}"
+      PASSWORD = "${var.basic_auth_password}"
+    }
+  }
+}
+
 resource "aws_api_gateway_rest_api" "ddns" {
   name = "ddns"
   description = "DDNS API"
@@ -121,7 +195,7 @@ resource "aws_api_gateway_method" "ddns_api_method" {
   resource_id = "${aws_api_gateway_resource.ddns_domain_record.id}"
   http_method = "GET"
   authorization = "NONE"
-  api_key_required = true
+  api_key_required = false
   request_parameters {
     "method.request.querystring.type" = true
     "method.request.querystring.value" = true
@@ -146,10 +220,6 @@ resource "aws_lambda_permission" "apigw_lambda" {
   source_arn = "arn:aws:execute-api:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${aws_api_gateway_rest_api.ddns.id}/*/${aws_api_gateway_method.ddns_api_method.http_method}${aws_api_gateway_resource.ddns_domain_record.path}"
 }
 
-resource "aws_api_gateway_api_key" "ddns_client" {
-  name = "ddns_client"
-}
-
 resource "aws_api_gateway_deployment" "ddns_v1" {
   rest_api_id = "${aws_api_gateway_rest_api.ddns.id}"
   stage_name = "v1"
@@ -168,12 +238,62 @@ resource "aws_api_gateway_usage_plan" "ddns_usage" {
   }
 }
 
-resource "aws_api_gateway_usage_plan_key" "ddns" {
-  key_id        = "${aws_api_gateway_api_key.ddns_client.id}"
-  key_type      = "API_KEY"
-  usage_plan_id = "${aws_api_gateway_usage_plan.ddns_usage.id}"
-}
+//resource "aws_api_gateway_api_key" "ddns_client" {
+//  name = "ddns_client"
+//}
+
+//resource "aws_api_gateway_usage_plan_key" "ddns" {
+//  key_id        = "${aws_api_gateway_api_key.ddns_client.id}"
+//  key_type      = "API_KEY"
+//  usage_plan_id = "${aws_api_gateway_usage_plan.ddns_usage.id}"
+//}
 
 output "dev_url" {
   value = "https://${aws_api_gateway_deployment.ddns_v1.rest_api_id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_deployment.ddns_v1.stage_name}"
+}
+
+resource "aws_api_gateway_authorizer" "basic" {
+  name                   = "basic_auth"
+  rest_api_id            = "${aws_api_gateway_rest_api.ddns.id}"
+  authorizer_uri         = "${aws_lambda_function.api_basic_auth_lambda.invoke_arn}"
+  authorizer_credentials = "${aws_iam_role.invocation_role.arn}"
+}
+
+resource "aws_iam_role" "invocation_role" {
+  name = "api_gateway_auth_invocation"
+  path = "/"
+
+  assume_role_policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": "sts:AssumeRole",
+      "Principal": {
+        "Service": "apigateway.amazonaws.com"
+      },
+      "Effect": "Allow",
+      "Sid": ""
+    }
+  ]
+}
+EOF
+}
+
+resource "aws_iam_role_policy" "invocation_policy" {
+  name = "api_gateway_auth_invocation"
+  role = "${aws_iam_role.invocation_role.id}"
+
+  policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": "lambda:InvokeFunction",
+      "Effect": "Allow",
+      "Resource": "${aws_lambda_function.api_basic_auth_lambda.arn}"
+    }
+  ]
+}
+EOF
 }
