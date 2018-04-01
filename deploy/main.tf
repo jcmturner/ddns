@@ -1,11 +1,18 @@
-provider "aws" {
-  region = "us-east-1"
+variable "aws_access_key" {}
+variable "aws_secret_key" {}
+variable "aws_region" {
+  default = "eu-west-2"
 }
 
-data "aws_region" "current" {}
-data "aws_iam_account_alias" "current" {}
+provider "aws" {
+  access_key = "${var.aws_access_key}"
+  secret_key = "${var.aws_secret_key}"
+  region     = "${var.aws_region}"
+}
 
-resource "aws_iam_role" "ddns_lambda_role" {
+data "aws_caller_identity" "current" {}
+
+resource "aws_iam_role" "ddns_lambda" {
   name = "ddns_lambda"
 
   assume_role_policy = <<EOF
@@ -32,7 +39,7 @@ data "aws_iam_policy_document" "ddns_lambda_policy" {
       "logs:CreateLogGroup",
     ]
     resources = [
-      "arn:aws:logs:${data.aws_region.current}:${data.aws_iam_account_alias.current}:*",
+      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*",
     ]
   }
 
@@ -43,7 +50,7 @@ data "aws_iam_policy_document" "ddns_lambda_policy" {
       "logs:PutLogEvents"
     ]
     resources = [
-      "arn:aws:logs:${data.aws_region.current}:${data.aws_iam_account_alias.current}:log-group:/aws/lambda/${aws_lambda_function.ddns_lambda.function_name}:*",
+      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${aws_lambda_function.ddns_lambda.function_name}:*",
     ]
   }
 
@@ -66,14 +73,14 @@ resource "aws_iam_policy" "ddns_lambda_policy" {
 }
 
 resource "aws_iam_role_policy_attachment" "ddns_attach" {
-  role       = "${aws_iam_role.ddns_lambda_role.name}"
+  role       = "${aws_iam_role.ddns_lambda.name}"
   policy_arn = "${aws_iam_policy.ddns_lambda_policy.arn}"
 }
 
 resource "aws_lambda_function" "ddns_lambda" {
   filename         = "ddns.zip"
   function_name    = "ddns"
-  role             = "${aws_iam_role.ddns_lambda_role.arn}"
+  role             = "${aws_iam_role.ddns_lambda.arn}"
   handler          = "main"
   source_code_hash = "${base64sha256(file("ddns.zip"))}"
   runtime          = "go1.x"
@@ -86,32 +93,32 @@ resource "aws_lambda_function" "ddns_lambda" {
   }
 }
 
-resource "aws_api_gateway_rest_api" "ddns_api" {
+resource "aws_api_gateway_rest_api" "ddns" {
   name = "ddns"
   description = "DDNS API"
 }
 
-resource "aws_api_gateway_resource" "ddns_api_resource" {
-  rest_api_id = "${aws_api_gateway_rest_api.ddns_api.id}"
-  parent_id = "${aws_api_gateway_rest_api.ddns_api.root_resource_id}"
+resource "aws_api_gateway_resource" "ddns" {
+  rest_api_id = "${aws_api_gateway_rest_api.ddns.id}"
+  parent_id = "${aws_api_gateway_rest_api.ddns.root_resource_id}"
   path_part = "ddns"
 }
 
-resource "aws_api_gateway_resource" "ddns_domain_api_resource" {
-  rest_api_id = "${aws_api_gateway_rest_api.ddns_api.id}"
-  parent_id = "${aws_api_gateway_resource.ddns_api_resource.id}"
+resource "aws_api_gateway_resource" "ddns_domain" {
+  rest_api_id = "${aws_api_gateway_rest_api.ddns.id}"
+  parent_id = "${aws_api_gateway_resource.ddns.id}"
   path_part = "{domain}"
 }
 
-resource "aws_api_gateway_resource" "ddns_domain_record_api_resource" {
-  rest_api_id = "${aws_api_gateway_rest_api.ddns_api.id}"
-  parent_id = "${aws_api_gateway_resource.ddns_domain_api_resource.id}"
+resource "aws_api_gateway_resource" "ddns_domain_record" {
+  rest_api_id = "${aws_api_gateway_rest_api.ddns.id}"
+  parent_id = "${aws_api_gateway_resource.ddns_domain.id}"
   path_part = "{record+}"
 }
 
 resource "aws_api_gateway_method" "ddns_api_method" {
-  rest_api_id = "${aws_api_gateway_rest_api.ddns_api.id}"
-  resource_id = "${aws_api_gateway_resource.ddns_domain_record_api_resource.id}"
+  rest_api_id = "${aws_api_gateway_rest_api.ddns.id}"
+  resource_id = "${aws_api_gateway_resource.ddns_domain_record.id}"
   http_method = "GET"
   authorization = "NONE"
   api_key_required = true
@@ -122,12 +129,12 @@ resource "aws_api_gateway_method" "ddns_api_method" {
 }
 
 resource "aws_api_gateway_integration" "ddns_api_method-integration" {
-  rest_api_id = "${aws_api_gateway_rest_api.ddns_api.id}"
-  resource_id = "${aws_api_gateway_resource.ddns_domain_record_api_resource.id}"
+  rest_api_id = "${aws_api_gateway_rest_api.ddns.id}"
+  resource_id = "${aws_api_gateway_resource.ddns_domain_record.id}"
   http_method = "${aws_api_gateway_method.ddns_api_method.http_method}"
   type = "AWS_PROXY"
   integration_http_method = "POST"
-  uri                     = "arn:aws:apigateway:${data.aws_region.current}:lambda:path/2015-03-31/functions/${aws_lambda_function.ddns_lambda.arn}/invocations"
+  uri                     = "arn:aws:apigateway:${var.aws_region}:lambda:path/2015-03-31/functions/${aws_lambda_function.ddns_lambda.arn}/invocations"
 }
 
 resource "aws_lambda_permission" "apigw_lambda" {
@@ -136,7 +143,7 @@ resource "aws_lambda_permission" "apigw_lambda" {
   function_name = "${aws_lambda_function.ddns_lambda.arn}"
   principal     = "apigateway.amazonaws.com"
   # More: http://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-control-access-using-iam-policies-to-invoke-api.html
-  source_arn = "arn:aws:execute-api:${data.aws_region.current}:${data.aws_iam_account_alias.current}:${aws_api_gateway_rest_api.ddns_api.id}/*/${aws_api_gateway_method.ddns_api_method.http_method}${aws_api_gateway_resource.ddns_domain_record_api_resource.path}"
+  source_arn = "arn:aws:execute-api:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${aws_api_gateway_rest_api.ddns.id}/*/${aws_api_gateway_method.ddns_api_method.http_method}${aws_api_gateway_resource.ddns_domain_record.path}"
 }
 
 resource "aws_api_gateway_api_key" "ddns_client" {
@@ -144,15 +151,19 @@ resource "aws_api_gateway_api_key" "ddns_client" {
 }
 
 resource "aws_api_gateway_deployment" "ddns_v1" {
-  rest_api_id = "${aws_api_gateway_rest_api.ddns_api.id}"
+  rest_api_id = "${aws_api_gateway_rest_api.ddns.id}"
   stage_name = "v1"
+  depends_on = [
+    "aws_api_gateway_method.ddns_api_method",
+    "aws_api_gateway_integration.ddns_api_method-integration"
+  ]
 }
 
 resource "aws_api_gateway_usage_plan" "ddns_usage" {
   name         = "ddns"
   description  = "ddns"
   api_stages {
-    api_id = "${aws_api_gateway_rest_api.ddns_api.id}"
+    api_id = "${aws_api_gateway_rest_api.ddns.id}"
     stage  = "${aws_api_gateway_deployment.ddns_v1.stage_name}"
   }
 }
@@ -164,5 +175,5 @@ resource "aws_api_gateway_usage_plan_key" "ddns" {
 }
 
 output "dev_url" {
-  value = "https://${aws_api_gateway_deployment.ddns_v1.rest_api_id}.execute-api.${data.aws_region.current}.amazonaws.com/${aws_api_gateway_deployment.ddns_v1.stage_name}"
+  value = "https://${aws_api_gateway_deployment.ddns_v1.rest_api_id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_deployment.ddns_v1.stage_name}"
 }
