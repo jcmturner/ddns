@@ -39,6 +39,9 @@ func UpdateRecord(r53 route53iface.Route53API, zoneID *string, fqdn, value strin
 
 // ZoneID returns the zone ID given the zone name
 func ZoneID(r53 route53iface.Route53API, zone string) (*string, error) {
+	if !strings.HasSuffix(zone, ".") {
+		zone = zone + "."
+	}
 	in := new(route53.ListHostedZonesInput)
 	more := true
 	for more {
@@ -48,7 +51,7 @@ func ZoneID(r53 route53iface.Route53API, zone string) (*string, error) {
 			return nil, err
 		}
 		for _, z := range out.HostedZones {
-			if strings.TrimRight(aws.StringValue(z.Name), ".") == zone {
+			if aws.StringValue(z.Name) == zone {
 				return z.Id, nil
 			}
 		}

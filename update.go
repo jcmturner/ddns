@@ -23,8 +23,19 @@ const (
 	invalidQueryParamsMsg = "invalid query parameters provided"
 	missingQueryParamsMsg = "missing query parameters"
 	invalidDomainMsg      = "domain provided is not valid"
-	serverErrMsg          = "error processing request"
+	intServerErrorMsg     = "error processing request"
 )
+
+type DDNSUpdate struct {
+	Domain     string
+	ZoneID     string
+	ZoneIDPtr  *string `json:"-"`
+	Record     string
+	FQDN       string
+	RecordType string
+	RRType     route53.RRType `json:"-"`
+	NewValue   string
+}
 
 type DDNSError struct {
 	ErrorMessage string
@@ -34,18 +45,11 @@ func (e DDNSError) Error() string {
 	return e.ErrorMessage
 }
 
-type DDNSResponse struct {
-	Domain     string
-	ZoneID     string
-	Record     string
-	RecordType string
-	NewValue   string
-}
-
 var Log = log.New(os.Stderr, "DDNS: ", log.Lshortfile)
 var Debug *log.Logger
 
 func init() {
+	// Initialise Debug logger based on lambda env variable
 	if strings.ToLower(os.Getenv("DEBUG")) == "true" {
 		Debug = log.New(os.Stderr, "DDNS Debug: ", log.Lshortfile)
 	} else {
@@ -54,73 +58,98 @@ func init() {
 	}
 }
 
-func handleRequest(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+func main() {
+	lambda.Start(handler)
+}
+
+func handler(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	if _, ok := req.QueryStringParameters["type"]; !ok {
 		Log.Printf("%d - no 'type' query param", http.StatusBadRequest)
-		return failure(missingQueryParamsMsg, http.StatusBadRequest)
+		return badRequest(missingQueryParamsMsg)
 	}
 	if _, ok := req.QueryStringParameters["value"]; !ok {
 		Log.Printf("%d - no 'value' query param", http.StatusBadRequest)
-		return failure(missingQueryParamsMsg, http.StatusBadRequest)
+		return badRequest(missingQueryParamsMsg)
 	}
 	rrtype, ok := validate(req.QueryStringParameters["type"], req.QueryStringParameters["value"])
 	if !ok {
-		return failure(invalidQueryParamsMsg, http.StatusBadRequest)
+		return badRequest(invalidQueryParamsMsg)
 	}
 
 	awsCl := new(awsclient.AWSClient)
 	r53Cl, err := awsCl.R53()
 	if err != nil {
-		Log.Printf("%d - error getting AWS client: %v", http.StatusInternalServerError, err)
-		return failure(serverErrMsg, http.StatusInternalServerError)
+		err := fmt.Errorf("error getting AWS client: %v", err)
+		return intServError(err)
 	}
 
 	domain := req.PathParameters["domain"]
+	if !strings.HasSuffix(domain, ".") {
+		domain = domain + "."
+	}
 	record := req.PathParameters["record"]
 	fqdn := fmt.Sprintf("%s.%s", record, domain)
 	zoneID, err := r53.ZoneID(r53Cl, req.PathParameters["domain"])
 	if err != nil {
-		Log.Printf("error getting ZoneID: %v", err)
-		return failure(invalidDomainMsg, http.StatusBadRequest)
+		err = fmt.Errorf("error getting ZoneID: %v", err)
+		Log.Print(err.Error())
+		return badRequest(invalidDomainMsg)
 	}
 
-	err = r53.UpdateRecord(r53Cl, zoneID, fqdn, req.QueryStringParameters["value"], rrtype)
+	d := DDNSUpdate{
+		Domain:     domain,
+		ZoneID:     aws.StringValue(zoneID),
+		ZoneIDPtr:  zoneID,
+		Record:     record,
+		FQDN:       fqdn,
+		RecordType: string(rrtype),
+		RRType:     rrtype,
+		NewValue:   req.QueryStringParameters["value"],
+	}
+	Debug.Printf("update requested: %+v", d)
+
+	err = r53.UpdateRecord(r53Cl, d.ZoneIDPtr, d.FQDN, d.NewValue, d.RRType)
 	if err != nil {
-		Log.Printf("error updating record: %v", err)
-		return failure(serverErrMsg, http.StatusInternalServerError)
+		err = fmt.Errorf("error updating record: %v", err)
+		Log.Print(err.Error())
+		return intServError(err)
 	}
 
-	return success(req.PathParameters["domain"], req.PathParameters["record"], req.QueryStringParameters["value"], zoneID, rrtype)
+	return success(d)
 }
 
-func main() {
-	lambda.Start(handleRequest)
-}
-
-func failure(msg string, HTTPcode int) (events.APIGatewayProxyResponse, error) {
+func badRequest(msg string) (events.APIGatewayProxyResponse, error) {
 	e := DDNSError{ErrorMessage: msg}
 	var s string
 	b, err := json.Marshal(e)
 	if err != nil {
-		s = "could not marshal error: " + err.Error()
+		err = fmt.Errorf("could not marshal error: %v", err)
+		return events.APIGatewayProxyResponse{Body: err.Error(), StatusCode: http.StatusBadRequest}, err
 	} else {
 		s = string(b)
 	}
-	return events.APIGatewayProxyResponse{Body: s, StatusCode: HTTPcode}, e
+	return events.APIGatewayProxyResponse{Body: s, StatusCode: http.StatusBadRequest}, nil
 }
 
-func success(domain, record, value string, zoneID *string, rrType route53.RRType) (events.APIGatewayProxyResponse, error) {
-	r := DDNSResponse{
-		Domain:     domain,
-		ZoneID:     aws.StringValue(zoneID),
-		Record:     record,
-		RecordType: string(rrType),
-		NewValue:   value,
-	}
-	Log.Printf("successful update: %+v", r)
-	b, err := json.Marshal(r)
+func intServError(intErr error) (events.APIGatewayProxyResponse, error) {
+	e := DDNSError{ErrorMessage: intServerErrorMsg}
+	var s string
+	b, err := json.Marshal(e)
 	if err != nil {
-		return failure("update succeeded, error marshaling response", http.StatusPartialContent)
+		err = fmt.Errorf("could not marshal error: %v", err)
+		return events.APIGatewayProxyResponse{Body: intServerErrorMsg, StatusCode: http.StatusInternalServerError}, intErr
+	} else {
+		s = string(b)
+	}
+	return events.APIGatewayProxyResponse{Body: s, StatusCode: http.StatusInternalServerError}, intErr
+}
+
+func success(d DDNSUpdate) (events.APIGatewayProxyResponse, error) {
+	Log.Printf("successful update: %+v", d)
+	b, err := json.Marshal(d)
+	if err != nil {
+		err = fmt.Errorf("update succeeded, error marshaling response: %v", err)
+		return events.APIGatewayProxyResponse{Body: err.Error(), StatusCode: http.StatusPartialContent}, err
 	}
 	return events.APIGatewayProxyResponse{Body: string(b), StatusCode: http.StatusOK}, nil
 }
