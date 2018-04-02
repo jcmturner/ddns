@@ -4,7 +4,10 @@ variable "aws_region" {
   default = "eu-west-2"
 }
 variable "basic_auth_user" {}
-variable "basic_auth_password" {}
+variable "basic_auth_user_password" {}
+variable "basic_auth_user_password_store" {
+  default = "/ddns/password"
+}
 
 
 provider "aws" {
@@ -36,16 +39,6 @@ EOF
 }
 
 data "aws_iam_policy_document" "ddns_lambda_policy" {
-  statement {
-    sid = "CreateLambdaLogGroup"
-    actions = [
-      "logs:CreateLogGroup",
-    ]
-    resources = [
-      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*",
-    ]
-  }
-
   statement {
     sid = "LambdaLogging"
     actions = [
@@ -118,16 +111,6 @@ EOF
 
 data "aws_iam_policy_document" "api_basic_auth_lambda_policy" {
   statement {
-    sid = "CreateLambdaLogGroup"
-    actions = [
-      "logs:CreateLogGroup",
-    ]
-    resources = [
-      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*",
-    ]
-  }
-
-  statement {
     sid = "LambdaLogging"
     actions = [
       "logs:CreateLogStream",
@@ -135,6 +118,15 @@ data "aws_iam_policy_document" "api_basic_auth_lambda_policy" {
     ]
     resources = [
       "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${aws_lambda_function.api_basic_auth_lambda.function_name}:*",
+    ]
+  }
+  statement {
+    sid = "ParamaterStoreAccess"
+    actions = [
+      "ssm:GetParameter"
+    ]
+    resources = [
+      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.basic_auth_user_password_store}",
     ]
   }
 }
@@ -162,8 +154,36 @@ resource "aws_lambda_function" "api_basic_auth_lambda" {
   environment {
     variables = {
       USER = "${var.basic_auth_user}"
-      PASSWORD = "${var.basic_auth_password}"
+      PASSWORD_STORE = "${var.basic_auth_user_password_store}"
     }
+  }
+}
+
+resource "aws_ssm_parameter" "secret" {
+  name  = "${var.basic_auth_user_password_store}"
+  description  = "DDNS password"
+  type  = "SecureString"
+  overwrite = true
+  value = "${var.basic_auth_user_password}"
+
+  tags {
+    Applicaion = "ddns"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "ddns" {
+  name = "/aws/lambda/${aws_lambda_function.ddns_lambda.function_name}"
+  retention_in_days = 14
+  tags {
+    Application = "ddns"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "auth" {
+  name = "/aws/lambda/${aws_lambda_function.api_basic_auth_lambda.function_name}"
+  retention_in_days = 14
+  tags {
+    Application = "ddns"
   }
 }
 
@@ -194,7 +214,8 @@ resource "aws_api_gateway_method" "ddns_api_method" {
   rest_api_id = "${aws_api_gateway_rest_api.ddns.id}"
   resource_id = "${aws_api_gateway_resource.ddns_domain_record.id}"
   http_method = "GET"
-  authorization = "NONE"
+  authorization = "CUSTOM"
+  authorizer_id = "${aws_api_gateway_authorizer.basic.id}"
   api_key_required = false
   request_parameters {
     "method.request.querystring.type" = true
