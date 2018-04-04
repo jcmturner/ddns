@@ -13,7 +13,7 @@ There are two Lambda functions to build and then apply terraform to deploy the f
 configuration
 
 Run the following commands. You will be prompted for your AWS access keys and secret keys, and a username and password
-that will be used to secure requests to teh API.
+that will be used to secure requests to the API.
 ```bash
 export GOOS=linux
 export GOARCH=amd64
