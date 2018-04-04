@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -31,6 +32,10 @@ func init() {
 		Debug = log.New(os.Stderr, "Auth Debug: ", log.Lshortfile)
 	} else {
 		Debug = log.New(ioutil.Discard, "", log.Lshortfile)
+	}
+	if v := flag.Lookup("test.v"); v != nil {
+		// We are in a test
+		return
 	}
 	awsCl := new(awsclient.AWSClient)
 	ssmCl, err := awsCl.SSM()
