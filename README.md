@@ -15,13 +15,13 @@ configuration
 Run the following commands. You will be prompted for your AWS access keys and secret keys, and a username and password
 that will be used to secure requests to the API.
 ```bash
-export GOOS=linux
-export GOARCH=amd64
+export GOOS=linux && \
+export GOARCH=amd64 && \
 cd $GOPATH/src/github.com/jcmturner/ddns/deploy && \
 go build -i -o $GOPATH/src/github.com/jcmturner/ddns/deploy/main $GOPATH/src/github.com/jcmturner/ddns/authorizer/basicauth.go && \
 zip ./auth.zip main && \
 go build -i -o $GOPATH/src/github.com/jcmturner/ddns/deploy/main $GOPATH/src/github.com/jcmturner/ddns/update/update.go && \
-zip ./ddns.zip main
+zip ./ddns.zip main && \
 terraform apply
 
 ```
