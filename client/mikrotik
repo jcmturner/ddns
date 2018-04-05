@@ -5,7 +5,7 @@
 :global ddnspasswd "PASSWORD"
 
 :global ddnsrecord "www"
-:global ddnsdomain "jtnet.co.uk."
+:global ddnsdomain "jtnet.co.uk"
 
 :global extint "pppoe-out1"
 
@@ -30,8 +30,9 @@
    :log error ("DDNS: No ip address present on pppoe-out1, please check.")
 } else={
   :if ($ddnsip != $ddnslastip) do={
-    :log info ("DDNS: Sending update for " . $ddnsrecord . "." . $ddnsdomain . " to " . $ddnsip)
-    :local url ($ddnsapi . $ddnsdomain . "/" . $ddnsrecord . "\?type=A&value=" .  $ddnsip)
+    :local ip [:pick $ddnsip 0 [:find $ddnsip "/"]]
+    :log info ("DDNS: Sending update for " . $ddnsrecord . "." . $ddnsdomain . " to " . $ip)
+    :local url ($ddnsapi . $ddnsdomain . "/" . $ddnsrecord . "\?type=A&value=" .  $ip)
     :log debug ("DDNS URL: " $url)
     /tool fetch url="$url" mode=https user=$ddnsuser password=$ddnspasswd dst-path=("/DDNS." . $ddnsrecord . "." . $ddnsdomain . ".json")
     :global ddnslastip $ddnsip
