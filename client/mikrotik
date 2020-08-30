@@ -22,7 +22,7 @@
 :log debug ("DDNS: External IP last time " . $ddnslastip )
 
 # Get the current IP address on the external interface.
-:global ddnsip [ /ip address get [/ip address find interface=$extint ] address ]
+:global ddnsip [ /ip address get [/ip address find dynamic interface=$extint ] address ]
 :log debug ("DDNS: External IP is currently " . $ddnsip)
 
 # Did we get an IP address to compare
