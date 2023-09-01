@@ -17,8 +17,7 @@ const (
 )
 
 func TestGetPasswd(t *testing.T) {
-	awsCl := new(awsclient.MockClient)
-	ssmCl, _ := awsCl.SSM()
+	ssmCl := new(awsclient.MockSSM)
 	passwd, err := getPasswd(ssmCl, "/store/location")
 	if err != nil {
 		t.Errorf("error getting password: %v", err)

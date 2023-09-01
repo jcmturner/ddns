@@ -1,34 +1,46 @@
 package awsclient
 
 import (
-	"github.com/aws/aws-sdk-go-v2/aws/external"
+	"context"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
-	"github.com/aws/aws-sdk-go-v2/service/route53/route53iface"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
-	"github.com/aws/aws-sdk-go-v2/service/ssm/ssmiface"
 )
 
-type Iface interface {
-	R53() (route53iface.Route53API, error)
-	SSM() (ssmiface.SSMAPI, error)
+// R53 is an interface used to enable mock client for testing.
+// The subset of methods the AWS route53 client implements that we use are specified here.
+type R53Client interface {
+	ChangeResourceRecordSets(ctx context.Context, params *route53.ChangeResourceRecordSetsInput, optFns ...func(*route53.Options)) (*route53.ChangeResourceRecordSetsOutput, error)
+	ListHostedZones(ctx context.Context, params *route53.ListHostedZonesInput, optFns ...func(*route53.Options)) (*route53.ListHostedZonesOutput, error)
 }
 
-type AWSClient struct{}
+type SSMClient interface {
+	GetParameter(ctx context.Context, params *ssm.GetParameterInput, optFns ...func(*ssm.Options)) (*ssm.GetParameterOutput, error)
+}
 
 // R53 returns a configured AWS Route53 client
-func (a *AWSClient) R53() (route53iface.Route53API, error) {
-	cfg, err := external.LoadDefaultAWSConfig()
+func R53(ctx context.Context) (R53Client, error) {
+	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
-		return new(route53.Route53), err
+		return nil, err
 	}
-	return route53.New(cfg), nil
+	cl := route53.NewFromConfig(cfg)
+	if cl == nil {
+		return nil, err
+	}
+	return cl, nil
 }
 
 // SSM returns a configured AWS SSM client
-func (a *AWSClient) SSM() (ssmiface.SSMAPI, error) {
-	cfg, err := external.LoadDefaultAWSConfig()
+func SSM(ctx context.Context) (SSMClient, error) {
+	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
-		return new(ssm.SSM), err
+		return nil, err
 	}
-	return ssm.New(cfg), nil
+	cl := ssm.NewFromConfig(cfg)
+	if cl == nil {
+		return nil, err
+	}
+	return cl, nil
 }

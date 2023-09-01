@@ -15,7 +15,7 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
-	"github.com/jcmturner/ddns/awsclient"
+	"github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/jcmturner/ddns/r53"
 )
 
@@ -33,7 +33,7 @@ type DDNSUpdate struct {
 	Record     string
 	FQDN       string
 	RecordType string
-	RRType     route53.RRType `json:"-"`
+	RRType     types.RRType `json:"-"`
 	NewValue   string
 }
 

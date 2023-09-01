@@ -2,21 +2,22 @@ package main
 
 import (
 	"context"
+	"ddns/awsclient"
 	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
-	"github.com/aws/aws-sdk-go-v2/service/ssm/ssmiface"
-	"github.com/jcmturner/ddns/awsclient"
 )
 
 var user = os.Getenv("USER")
@@ -31,18 +32,23 @@ func init() {
 	if strings.ToLower(os.Getenv("DEBUG")) == "true" {
 		Debug = log.New(os.Stderr, "Auth Debug: ", log.Lshortfile)
 	} else {
-		Debug = log.New(ioutil.Discard, "", log.Lshortfile)
+		Debug = log.New(io.Discard, "", log.Lshortfile)
 	}
 	if v := flag.Lookup("test.v"); v != nil {
 		// We are in a test
 		return
 	}
-	awsCl := new(awsclient.AWSClient)
-	ssmCl, err := awsCl.SSM()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
+		panic("cannot load client config: " + err.Error())
+	}
+	cl := ssm.NewFromConfig(cfg)
+	if cl == nil {
 		panic("cannot create SSM client: " + err.Error())
 	}
-	passwd, err = getPasswd(ssmCl, passwd_store)
+	passwd, err = getPasswd(cl, passwd_store)
 	if err != nil {
 		panic("cannot get password: " + err.Error())
 	}
@@ -95,15 +101,17 @@ func parseBasicHeaderValue(s string) (username, password string, err error) {
 	return vc[0], vc[1], nil
 }
 
-func getPasswd(ssmapi ssmiface.SSMAPI, store string) (string, error) {
+func getPasswd(cl awsclient.SSMClient, store string) (string, error) {
 	in := &ssm.GetParameterInput{
 		Name:           aws.String(store),
 		WithDecryption: aws.Bool(true),
 	}
-	req := ssmapi.GetParameterRequest(in)
-	out, err := req.Send()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
+	defer cancel()
+
+	out, err := cl.GetParamter(ctx, in)
 	if err != nil {
 		return "", err
 	}
-	return aws.StringValue(out.Parameter.Value), nil
+	return aws.ToString(out.Parameter.Value), nil
 }

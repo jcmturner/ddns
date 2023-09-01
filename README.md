@@ -18,10 +18,10 @@ that will be used to secure requests to the API.
 export GOOS=linux && \
 export GOARCH=amd64 && \
 cd $GOPATH/src/github.com/jcmturner/ddns/deploy && \
-go build -i -o $GOPATH/src/github.com/jcmturner/ddns/deploy/main $GOPATH/src/github.com/jcmturner/ddns/authorizer/basicauth.go && \
-zip ./auth.zip main && \
-go build -i -o $GOPATH/src/github.com/jcmturner/ddns/deploy/main $GOPATH/src/github.com/jcmturner/ddns/update/update.go && \
-zip ./ddns.zip main && \
+GOARCH=arm64 GOOS=linux go build -i -tags lambda.norpc -o $GOPATH/src/github.com/jcmturner/ddns/deploy/bootstrap $GOPATH/src/github.com/jcmturner/ddns/authorizer/basicauth.go && \
+zip ./auth.zip bootstrap && \
+GOARCH=arm64 GOOS=linux go build -i -tags lambda.norpc -o $GOPATH/src/github.com/jcmturner/ddns/deploy/bootstrap $GOPATH/src/github.com/jcmturner/ddns/update/update.go && \
+zip ./ddns.zip bootstrap && \
 terraform apply
 
 ```

@@ -80,6 +80,8 @@ resource "aws_lambda_function" "ddns_lambda" {
   handler          = "main"
   source_code_hash = "${base64sha256(file("ddns.zip"))}"
   runtime          = "go1.x"
+  #runtime          = "provided.al2"
+  #architectures    = ["arm64"]
   timeout = 180
 
   environment {
@@ -149,6 +151,8 @@ resource "aws_lambda_function" "api_basic_auth_lambda" {
   handler          = "main"
   source_code_hash = "${base64sha256(file("auth.zip"))}"
   runtime          = "go1.x"
+  #runtime          = "provided.al2"
+  #architectures = ["arm64"]
   timeout = 30
 
   environment {

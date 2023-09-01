@@ -1,25 +1,27 @@
 package r53
 
 import (
+	"context"
+	"ddns/awsclient"
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
-	"github.com/aws/aws-sdk-go-v2/service/route53/route53iface"
 )
 
 // UpdateRecord upserts a route53 record
-func UpdateRecord(r53 route53iface.Route53API, zoneID *string, fqdn, value string, rectype route53.RRType) error {
-	in := &route53.ChangeResourceRecordSetsInput{
-		ChangeBatch: &route53.ChangeBatch{
-			Changes: []route53.Change{
+func UpdateRecord(ctx context.Context, cl awsclient.R53Client, zoneID *string, fqdn, value string, rectype types.RRType) error {
+	in := &types.ChangeResourceRecordSetsInput{
+		ChangeBatch: &types.ChangeBatch{
+			Changes: []types.Change{
 				{
-					Action: route53.ChangeActionUpsert,
-					ResourceRecordSet: &route53.ResourceRecordSet{
+					Action: types.ChangeActionUpsert,
+					ResourceRecordSet: &types.ResourceRecordSet{
 						Name: aws.String(fqdn),
 						Type: rectype,
-						ResourceRecords: []route53.ResourceRecord{
+						ResourceRecords: []types.ResourceRecord{
 							{
 								Value: aws.String(value),
 							},
@@ -32,30 +34,28 @@ func UpdateRecord(r53 route53iface.Route53API, zoneID *string, fqdn, value strin
 		},
 		HostedZoneId: zoneID,
 	}
-	req := r53.ChangeResourceRecordSetsRequest(in)
-	_, err := req.Send()
+	_, err := cl.ChangeResourceRecordSets(ctx, in)
 	return err
 }
 
 // ZoneID returns the zone ID given the zone name
-func ZoneID(r53 route53iface.Route53API, zone string) (*string, error) {
+func ZoneID(ctx context.Context, cl awsclient.R53Client, zone string) (*string, error) {
 	if !strings.HasSuffix(zone, ".") {
 		zone = zone + "."
 	}
 	in := new(route53.ListHostedZonesInput)
 	more := true
 	for more {
-		req := r53.ListHostedZonesRequest(in)
-		out, err := req.Send()
+		out, err := cl.ListHostedZones(ctx, in)
 		if err != nil {
 			return nil, err
 		}
 		for _, z := range out.HostedZones {
-			if aws.StringValue(z.Name) == zone {
+			if aws.ToString(z.Name) == zone {
 				return z.Id, nil
 			}
 		}
-		more = aws.BoolValue(out.IsTruncated)
+		more = out.IsTruncated
 		in.Marker = out.NextMarker
 	}
 	return nil, fmt.Errorf("zone %s not found", zone)
