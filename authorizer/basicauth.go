@@ -2,11 +2,10 @@ package main
 
 import (
 	"context"
-	"ddns/awsclient"
 	"encoding/base64"
 	"errors"
-	"flag"
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"io"
 	"log"
 	"os"
@@ -16,8 +15,8 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	"github.com/jcmturner/ddns/awsclient"
 )
 
 var user = os.Getenv("USER")
@@ -34,10 +33,9 @@ func init() {
 	} else {
 		Debug = log.New(io.Discard, "", log.Lshortfile)
 	}
-	if v := flag.Lookup("test.v"); v != nil {
-		// We are in a test
-		return
-	}
+}
+
+func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cfg, err := config.LoadDefaultConfig(ctx)
@@ -52,9 +50,6 @@ func init() {
 	if err != nil {
 		panic("cannot get password: " + err.Error())
 	}
-}
-
-func main() {
 	lambda.Start(handleAuth)
 }
 
@@ -108,8 +103,7 @@ func getPasswd(cl awsclient.SSMClient, store string) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
 	defer cancel()
-
-	out, err := cl.GetParamter(ctx, in)
+	out, err := cl.GetParameter(ctx, in)
 	if err != nil {
 		return "", err
 	}

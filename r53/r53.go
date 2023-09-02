@@ -2,18 +2,18 @@ package r53
 
 import (
 	"context"
-	"ddns/awsclient"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
+	"github.com/jcmturner/ddns/awsclient"
 )
 
 // UpdateRecord upserts a route53 record
 func UpdateRecord(ctx context.Context, cl awsclient.R53Client, zoneID *string, fqdn, value string, rectype types.RRType) error {
-	in := &types.ChangeResourceRecordSetsInput{
+	in := &route53.ChangeResourceRecordSetsInput{
 		ChangeBatch: &types.ChangeBatch{
 			Changes: []types.Change{
 				{

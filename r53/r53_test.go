@@ -2,19 +2,17 @@ package r53
 
 import (
 	"context"
-	awsclient2 "ddns/awsclient"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/route53"
 	"github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/jcmturner/ddns/awsclient"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestUpdateRecord(t *testing.T) {
-	r53Cl := new(awsclient2.R53Client)
+	r53Cl := new(awsclient.MockR53)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	err := UpdateRecord(ctx, r53Cl, aws.String(awsclient.MockHostedZoneID), awsclient.MockeZoneName, "1.2.3.4", types.RRTypeA)
@@ -24,7 +22,7 @@ func TestUpdateRecord(t *testing.T) {
 }
 
 func TestZoneID(t *testing.T) {
-	r53Cl := new(awsclient2.R53Client)
+	r53Cl := new(awsclient.MockR53)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	zid, err := ZoneID(ctx, r53Cl, awsclient.MockeZoneName)

@@ -14,8 +14,8 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/route53"
 	"github.com/aws/aws-sdk-go-v2/service/route53/types"
+	"github.com/jcmturner/ddns/awsclient"
 	"github.com/jcmturner/ddns/r53"
 )
 
@@ -76,8 +76,7 @@ func handler(ctx context.Context, req events.APIGatewayProxyRequest) (events.API
 		return badRequest(invalidQueryParamsMsg)
 	}
 
-	awsCl := new(awsclient.AWSClient)
-	r53Cl, err := awsCl.R53()
+	r53Cl, err := awsclient.R53(ctx)
 	if err != nil {
 		err := fmt.Errorf("error getting AWS client: %v", err)
 		return intServError(err)
@@ -89,7 +88,7 @@ func handler(ctx context.Context, req events.APIGatewayProxyRequest) (events.API
 	}
 	record := req.PathParameters["record"]
 	fqdn := fmt.Sprintf("%s.%s", record, domain)
-	zoneID, err := r53.ZoneID(r53Cl, req.PathParameters["domain"])
+	zoneID, err := r53.ZoneID(ctx, r53Cl, req.PathParameters["domain"])
 	if err != nil {
 		err = fmt.Errorf("error getting ZoneID: %v", err)
 		Log.Print(err.Error())
@@ -98,7 +97,7 @@ func handler(ctx context.Context, req events.APIGatewayProxyRequest) (events.API
 
 	d := DDNSUpdate{
 		Domain:     domain,
-		ZoneID:     aws.StringValue(zoneID),
+		ZoneID:     aws.ToString(zoneID),
 		ZoneIDPtr:  zoneID,
 		Record:     record,
 		FQDN:       fqdn,
@@ -108,7 +107,7 @@ func handler(ctx context.Context, req events.APIGatewayProxyRequest) (events.API
 	}
 	Debug.Printf("update requested: %+v", d)
 
-	err = r53.UpdateRecord(r53Cl, d.ZoneIDPtr, d.FQDN, d.NewValue, d.RRType)
+	err = r53.UpdateRecord(ctx, r53Cl, d.ZoneIDPtr, d.FQDN, d.NewValue, d.RRType)
 	if err != nil {
 		err = fmt.Errorf("error updating record: %v", err)
 		Log.Print(err.Error())
@@ -154,15 +153,15 @@ func success(d DDNSUpdate) (events.APIGatewayProxyResponse, error) {
 	return events.APIGatewayProxyResponse{Body: string(b), StatusCode: http.StatusOK}, nil
 }
 
-func validate(rectype, value string) (route53.RRType, bool) {
+func validate(rectype, value string) (types.RRType, bool) {
 	rectype = strings.ToUpper(rectype)
 	switch rectype {
-	case string(route53.RRTypeA):
-		Debug.Printf("record type: %s", string(route53.RRTypeA))
-		return route53.RRTypeA, validateARecord(value)
+	case string(types.RRTypeA):
+		Debug.Printf("record type: %s", string(types.RRTypeA))
+		return types.RRTypeA, validateARecord(value)
 	default:
 		Log.Printf("%d - invalid record type %s", http.StatusBadRequest, rectype)
-		return route53.RRType(""), false
+		return types.RRType(""), false
 	}
 }
 
